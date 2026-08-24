@@ -1,4 +1,4 @@
-import rateLimit, { type RateLimitRequestHandler } from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator, type RateLimitRequestHandler } from 'express-rate-limit';
 import type { Request } from 'express';
 import { isTest } from '../config/env.js';
 
@@ -17,7 +17,12 @@ function keyByIpAndAccount(req: Request): string {
   // out an entire NAT'd office, and one victim email can't be hammered from
   // many IPs without each IP also being limited.
   const email = typeof req.body?.email === 'string' ? req.body.email.toLowerCase() : '';
-  return `${req.ip}|${email}`;
+  // `ipKeyGenerator` narrows an IPv6 address to its /64 before using it as a
+  // key. Without it the key is the full address, and a single residential IPv6
+  // allocation — routinely a /64 or larger — hands out enough distinct
+  // addresses to walk a six-digit code unhindered, one guess per key. IPv4 is
+  // returned unchanged.
+  return `${ipKeyGenerator(req.ip ?? '')}|${email}`;
 }
 
 const disabled: RateLimitRequestHandler = ((_req, _res, next) => next()) as RateLimitRequestHandler;

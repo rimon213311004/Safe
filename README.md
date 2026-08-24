@@ -414,11 +414,13 @@ SMTP*.
 ```env
 MAIL_DRIVER=smtp
 SMTP_HOST=smtp-relay.brevo.com
-SMTP_PORT=587
+SMTP_PORT=2525
 SMTP_USER=9xxxxx@smtp-brevo.com
 SMTP_PASS=<the SMTP key, not your account password>
 MAIL_FROM="SafeCheck <your-verified-sender@example.com>"
 ```
+
+Brevo answers on 587 and 2525 alike. Prefer 2525 — see below for why.
 
 Restart the API, then prove it works before touching the sign-up form:
 
@@ -435,6 +437,34 @@ otherwise invisible. First sends from a new sender often land in spam.
 variables if both are set. Prefer the discrete ones — a URL has to
 percent-encode its password, and a pasted password containing `@` or `/` produces
 an authentication failure that looks nothing like an encoding bug.
+
+### When the host blocks SMTP
+
+Most free hosting tiers — Render's included — drop outbound traffic on ports 25,
+465 and 587 to keep spammers off. Nothing is refused; the packets simply vanish,
+so a correctly configured Gmail account that works from a laptop fails from the
+deployed API with `Connection timeout` and nothing else. Verified on Render's free
+instance: both 465 and 587 time out, from an account whose credentials send fine
+locally.
+
+Two ways out, neither needing a paid plan:
+
+- **Use a relay that answers on 2525.** Brevo, SendGrid, Mailjet and Mailgun all
+  do; the port exists precisely for hosts that block the standard three, and it is
+  not on anyone's block list. This is a two-variable change — `SMTP_HOST` and
+  `SMTP_PORT` — and no code moves. Gmail does not offer it: 465 and 587 are the
+  only ports it listens on, which is why Gmail cannot be used from a free
+  instance at all.
+- **Run without mail.** Set `REQUIRE_EMAIL_VERIFICATION=false` and sign-up stops
+  asking for a code, exactly as with the console driver. Password reset is the one
+  flow that genuinely cannot work — it has nowhere to send the code — and it will
+  return an error rather than pretend.
+
+The transport gives up after 10 seconds rather than nodemailer's default two
+minutes (`SMTP_TIMEOUTS` in `services/messaging.service.ts`). A blocked port is
+indistinguishable from a host that is not listening, and two minutes of waiting
+holds a worker on a small instance while the browser has long since given up —
+better to fail fast and say why in the log.
 
 ### Forgotten passwords
 
@@ -609,6 +639,10 @@ element is silently dropped.
 
 ## Deploying
 
+Live: web at <https://safecheck-web-chi.vercel.app>, API at
+<https://safecheck-api-oadn.onrender.com>. Both on free tiers, which is where most
+of the notes below come from.
+
 - **API** — any Node 20+ host. `npm run build` then `npm start -w @safecheck/api`.
   Set every variable from the table above; `config/env.ts` will refuse to boot
   otherwise. Redis is optional.
@@ -617,6 +651,39 @@ element is silently dropped.
   deployed web origin.
 - Keep `IDENTIFIER_PEPPER` and `EVIDENCE_ENCRYPTION_KEY` backed up outside the
   host. Rotating either one without a migration is data loss.
+
+### Four things that bite on the first deploy
+
+**`API_PROXY_TARGET` has to exist at build time.** The `/api` rewrite lives in
+`next.config.ts`, and Next bakes rewrites into the build output. A variable added
+after the build is invisible: the proxy keeps pointing at `localhost:4000` and
+every request from the browser 404s. Set it, then build.
+
+**A `tsc` build needs devDependencies.** Render's Node runtime exports
+`NODE_ENV=production`, and `npm install` then skips `devDependencies` — so
+`typescript` and every `@types/*` package are missing and the build fails on
+`Cannot find module 'vitest'` and `Could not find a declaration file for module
+'express'`. The build command has to ask for them:
+
+```bash
+npm install --include=dev && npm run build:shared && npm run build -w @safecheck/api
+```
+
+**Outbound SMTP is blocked on free instances.** See *When the host blocks SMTP*
+above. This deployment runs with `REQUIRE_EMAIL_VERIFICATION=false` because Gmail
+is unreachable from Render's free tier; swapping in a relay that answers on 2525
+turns verification and password reset back on with no code change.
+
+**Vercel's preview comments collide with immutable static uploads.** On Next 16 the
+build succeeds and then the *deploy* fails with `Cannot patch preview comments when
+immutable static file upload is enabled`. Turning both feedback flags off on the
+project fixes it:
+
+```bash
+curl -X PATCH "https://api.vercel.com/v2/projects/$PROJECT?teamId=$TEAM" \
+  -H "Authorization: Bearer $VERCEL_TOKEN" -H 'content-type: application/json' \
+  -d '{"enablePreviewFeedback":false,"enableProductionFeedback":false}'
+```
 
 ---
 

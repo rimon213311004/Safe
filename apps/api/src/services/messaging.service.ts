@@ -38,6 +38,25 @@ class ConsoleMailTransport implements MailTransport {
 }
 
 /**
+ * Fail fast on a relay that never answers.
+ *
+ * Nodemailer waits two minutes to connect by default, which is longer than any
+ * caller is prepared to wait: the browser gives up first and the registration
+ * that triggered the send is left with no answer at all, while the request keeps
+ * a worker busy on a small instance. The usual cause is not a slow relay but a
+ * silently dropped packet — most free hosting tiers block outbound 25/465/587 to
+ * keep spammers off, and a blocked port looks exactly like a host that is simply
+ * not listening. Ten seconds is generous for a TCP handshake and a greeting
+ * anywhere in the world; past that, something is wrong, and the log line saying
+ * so is worth more than another 110 seconds of waiting.
+ */
+const SMTP_TIMEOUTS = {
+  connectionTimeout: 10_000,
+  greetingTimeout: 10_000,
+  socketTimeout: 20_000,
+} as const;
+
+/**
  * Two ways to point this at a provider, both handled here:
  *
  *   SMTP_URL=smtps://user:pass@smtp.example.com:465
@@ -46,11 +65,12 @@ class ConsoleMailTransport implements MailTransport {
  * The discrete variables exist because a URL has to percent-encode its
  * password, and a pasted password containing `@` or `/` produces an
  * authentication failure that looks nothing like an encoding bug. If both are
- * present the URL wins.
+ * present the URL wins — nodemailer parses `url` and lets its fields override
+ * the rest, which is why the timeouts above can sit alongside it.
  */
 function smtpConnection() {
   const url = env.SMTP_URL.trim();
-  if (url) return url;
+  if (url) return { url, ...SMTP_TIMEOUTS };
   return {
     host: env.SMTP_HOST,
     port: env.SMTP_PORT,
@@ -60,6 +80,7 @@ function smtpConnection() {
     // Spread rather than `auth: undefined` — an unauthenticated relay (a local
     // Mailpit, say) must not send an empty AUTH command.
     ...(env.SMTP_USER ? { auth: { user: env.SMTP_USER, pass: env.SMTP_PASS } } : {}),
+    ...SMTP_TIMEOUTS,
   };
 }
 
