@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:web"],
+      "port": 3000
+    },
+    {
+      "name": "web-built",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start", "-w", "@safecheck/web"],
+      "port": 3000,
+      "autoPort": true
+    }
+  ]
+}

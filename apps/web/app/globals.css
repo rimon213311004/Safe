@@ -1,0 +1,1786 @@
+/*
+ * SafeCheck design system.
+ *
+ * One stylesheet, semantic class names, no framework. The palette leans quiet on
+ * purpose: this is a product people open when something has gone wrong, and a
+ * loud interface reads as either alarming or flippant. Colour is reserved for
+ * status and for the navigation rail; everything else earns its presence through
+ * depth and spacing rather than hue.
+ *
+ * Structure: tokens → reset → layout → typography → surfaces → controls →
+ * forms → status → data → app chrome → responsive.
+ *
+ * ── How this sheet gets its finish ────────────────────────────────────────────
+ *
+ * Four techniques do nearly all of the work, applied consistently rather than
+ * decoratively:
+ *
+ *   1. Surfaces are gradients, not flat fills — a 2–3% vertical shift is below
+ *      the threshold of notice on its own but reads as material once every card,
+ *      button and rail agrees on the direction of the light.
+ *   2. Raised surfaces carry an `inset 0 1px 0` white hairline on their top edge.
+ *      That single line is what separates "a box with a shadow" from something
+ *      that looks lit.
+ *   3. Shadows are layered and tinted toward the ink colour, never neutral grey,
+ *      and accent-coloured elements cast an accent-tinted glow.
+ *   4. One easing curve, `--ease`, on every transition. Mixed easings are the
+ *      most common reason an otherwise careful interface feels cheap.
+ *
+ * ── How this sheet handles small screens ──────────────────────────────────────
+ *
+ * Mobile-first, and mostly without breakpoints: spacing and the larger type
+ * sizes are `clamp()`ed against the viewport, so a 320px phone and a 1600px
+ * monitor are both first-class without a ladder of overrides to keep in sync.
+ * Breakpoints are reserved for the four things that genuinely change shape:
+ *
+ *   ≤ 599px   list rows stack (label above status), fact lists become one column
+ *   ≤ 859px   the sidebar is an off-canvas drawer behind an app bar
+ *   ≥ 860px   the sidebar is a fixed column; the app bar disappears
+ *   ≥ 1440px  wider sidebar and a wider content cap, so big monitors gain
+ *             information rather than margin
+ *
+ * Two further axes are handled by capability rather than width — `pointer:
+ * coarse` grows every hit target to 44px, and `max-height` shortens the
+ * vertically-centred auth screens for landscape phones. Testing at 320, 375,
+ * 768, 1024, 1280 and 1920 covers the width axis; rotating a phone covers the
+ * other.
+ */
+
+/* ------------------------------------------------------------------- tokens */
+
+:root {
+  color-scheme: light dark;
+
+  /* Neutrals. The canvas is cool and clearly darker than a card, so elevation
+     reads without needing a heavy shadow to prove it. */
+  --canvas: #eceff4;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-sunken: #f4f7fa;
+  --border: #e1e7ef;
+  --border-strong: #c7d0dc;
+  --ink: #0c1620;
+  --ink-soft: #46556a;
+  --ink-faint: #6a7889;
+
+  /* The top-edge highlight described in the header comment. */
+  --hairline: rgb(255 255 255 / 85%);
+
+  /* Accent — deep teal. `lift` is the lighter top stop of every accent
+     gradient; `glow` is the same hue at low alpha for shadows and rings. */
+  --accent: #0f6e64;
+  --accent-lift: #158e80;
+  --accent-strong: #0a4f48;
+  --accent-soft: #e4f1ef;
+  --accent-ink: #073d37;
+  --accent-glow: rgb(15 110 100 / 30%);
+  --accent-ring: rgb(15 110 100 / 16%);
+
+  /* Ambient light behind the page. Two barely-there radial washes at the top;
+     enough to stop a large monitor reading as a flat grey field. */
+  --glow-a: rgb(15 110 100 / 8%);
+  --glow-b: rgb(23 92 211 / 5%);
+
+  /* Status */
+  --danger: #b42318;
+  --danger-soft: #fdeceb;
+  --warn: #b54708;
+  --warn-soft: #fdf3e7;
+  --success: #06764a;
+  --success-soft: #e7f6ee;
+  --info: #175cd3;
+  --info-soft: #eaf1fd;
+
+  /* Geometry */
+  --radius-sm: 7px;
+  --radius: 11px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+
+  /* Elevation. Tinted toward the ink, layered, and tight at the contact edge —
+     a single large blur reads as fog rather than lift. */
+  --shadow-sm: 0 1px 2px rgb(12 22 32 / 5%), 0 1px 1px rgb(12 22 32 / 4%);
+  --shadow: 0 2px 4px rgb(12 22 32 / 4%), 0 8px 20px -6px rgb(12 22 32 / 10%);
+  --shadow-lg: 0 4px 8px rgb(12 22 32 / 5%), 0 24px 48px -12px rgb(12 22 32 / 18%);
+  --shadow-accent: 0 6px 18px -8px var(--accent-glow);
+
+  /* Navigation rail. Deliberately not the same fill as a card: the rail is
+     furniture, cards are content, and the eye should not have to work that out. */
+  --nav-bg: linear-gradient(180deg, #ffffff 0%, #f6f9fb 55%, #f2f6f9 100%);
+
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+
+  /* One curve everywhere. Slow out, fast in — the standard "expensive" feel. */
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Fluid space. These carry the responsive layout: they interpolate with the
+     viewport, so most of the sheet needs no breakpoint at all. */
+  --gutter: clamp(14px, 4vw, 24px); /* container side padding */
+  --card-pad: clamp(16px, 3.4vw, 22px);
+  --row-pad-x: clamp(14px, 3.4vw, 18px);
+  --gap: clamp(12px, 2.6vw, 16px);
+  --gap-loose: clamp(20px, 4vw, 28px);
+
+  --sidebar-width: 244px;
+  --appbar-height: 58px;
+  --drawer-width: min(84vw, 304px);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: #0a0f16;
+    --surface: #141c25;
+    --surface-raised: #1a232f;
+    --surface-sunken: #101822;
+    --border: #253140;
+    --border-strong: #364554;
+    --ink: #e9eef4;
+    --ink-soft: #a4b2c3;
+    --ink-faint: #7c8a9c;
+
+    /* Dark surfaces are lit from above too, just far more faintly — at 85% the
+       hairline would look like a scratch. */
+    --hairline: rgb(255 255 255 / 7%);
+
+    --accent: #3fb3a4;
+    --accent-lift: #55c9b9;
+    --accent-strong: #2a9689;
+    --accent-soft: #0f2f2c;
+    --accent-ink: #a9e8dd;
+    --accent-glow: rgb(63 179 164 / 34%);
+    --accent-ring: rgb(63 179 164 / 22%);
+
+    --glow-a: rgb(63 179 164 / 9%);
+    --glow-b: rgb(127 169 245 / 7%);
+
+    --danger: #f0837a;
+    --danger-soft: #331613;
+    --warn: #e9a55c;
+    --warn-soft: #33220f;
+    --success: #5ec898;
+    --success-soft: #0f2a1f;
+    --info: #7fa9f5;
+    --info-soft: #121e34;
+
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 45%);
+    --shadow: 0 2px 4px rgb(0 0 0 / 35%), 0 10px 24px -8px rgb(0 0 0 / 55%);
+    --shadow-lg: 0 4px 8px rgb(0 0 0 / 40%), 0 28px 56px -16px rgb(0 0 0 / 70%);
+
+    --nav-bg: linear-gradient(180deg, #18222e 0%, #131b25 60%, #111922 100%);
+  }
+}
+
+/* -------------------------------------------------------------------- reset */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+* {
+  margin: 0;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100vh;
+  min-height: 100dvh; /* phones: the URL bar must not crop the last row */
+  /* Document-anchored rather than `background-attachment: fixed`: fixed
+     attachment repaints on every scroll frame and is outright buggy on iOS. */
+  background-color: var(--canvas);
+  background-image:
+    radial-gradient(70% 52% at 10% -12%, var(--glow-a) 0%, transparent 62%),
+    radial-gradient(58% 46% at 92% -8%, var(--glow-b) 0%, transparent 62%);
+  background-repeat: no-repeat;
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Inputs inherit this, and iOS zooms the page for any field under 16px. Raising
+   the base below the sidebar breakpoint fixes the zoom and reads better on a
+   phone at arm's length; `rem` sizes elsewhere are unaffected. */
+@media (max-width: 859px) {
+  body {
+    font-size: 16px;
+  }
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Screen-reader-only, for labels that would be redundant on screen. */
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Nothing below animates for anyone who has asked it not to. Transforms are the
+   worst offenders for motion sensitivity, so they go entirely rather than fast. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ------------------------------------------------------------------- layout */
+
+.container {
+  width: 100%;
+  max-width: 940px;
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.container.wide {
+  max-width: 1180px;
+}
+
+.container.narrow {
+  max-width: 560px;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+
+.stack.tight {
+  gap: 8px;
+}
+
+.stack.loose {
+  gap: var(--gap-loose);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.row.between {
+  justify-content: space-between;
+}
+
+.row.end {
+  justify-content: flex-end;
+}
+
+.row.top {
+  align-items: flex-start;
+}
+
+/* `min(…, 100%)` is what keeps these from overflowing a 320px screen: a bare
+   `minmax(240px, 1fr)` track cannot shrink below 240px and pushes the page
+   sideways instead of wrapping. */
+.grid {
+  display: grid;
+  gap: var(--gap);
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+}
+
+.split {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 900px) {
+  .split {
+    grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* --------------------------------------------------------------- typography */
+
+h1,
+h2,
+h3,
+h4 {
+  font-weight: 640;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+}
+
+h1 {
+  font-size: clamp(1.375rem, 1.1rem + 1.4vw, 1.75rem);
+}
+
+h2 {
+  font-size: clamp(1.0625rem, 0.98rem + 0.5vw, 1.2rem);
+}
+
+h3 {
+  font-size: 1rem;
+}
+
+.display {
+  font-size: clamp(1.75rem, 1.1rem + 3.6vw, 3.1rem);
+  font-weight: 690;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  /* Long words in a headline are what break a 320px screen. */
+  overflow-wrap: break-word;
+}
+
+.lede {
+  font-size: clamp(0.9375rem, 0.9rem + 0.3vw, 1.05rem);
+  color: var(--ink-soft);
+  max-width: 62ch;
+}
+
+.muted {
+  color: var(--ink-soft);
+}
+
+.faint {
+  color: var(--ink-faint);
+  font-size: 0.875rem;
+}
+
+.eyebrow {
+  font-size: 0.72rem;
+  font-weight: 660;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+/* The eyebrow as a floating chip with a live dot. Used once, at the top of the
+   landing page, where the page has no other anchor for the eye. */
+.eyebrow.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  padding: 6px 14px 6px 11px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--surface-raised), var(--surface));
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm), inset 0 1px 0 var(--hairline);
+  color: var(--ink-soft);
+  letter-spacing: 0.07em;
+  max-width: 100%;
+}
+
+.eyebrow.chip::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+}
+
+.prose {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.65;
+}
+
+.page-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+/* ----------------------------------------------------------------- surfaces */
+
+.card {
+  position: relative;
+  background: linear-gradient(180deg, var(--surface-raised), var(--surface));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--card-pad);
+  box-shadow: var(--shadow-sm), inset 0 1px 0 var(--hairline);
+}
+
+.card.flush {
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Opt-in lift, for cards that are themselves a link or a button. */
+.card.interactive {
+  transition: transform 0.25s var(--ease), box-shadow 0.25s var(--ease),
+    border-color 0.25s var(--ease);
+}
+
+.card.interactive:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow), inset 0 1px 0 var(--hairline);
+  border-color: var(--border-strong);
+}
+
+.card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.card-head h2,
+.card-head h3 {
+  margin: 0;
+}
+
+.panel {
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px var(--row-pad-x);
+}
+
+hr.rule {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 4px 0;
+}
+
+/* ----------------------------------------------------------------- controls */
+
+.btn {
+  --btn-bg: linear-gradient(180deg, var(--surface-raised), var(--surface));
+  --btn-fg: var(--ink);
+  --btn-border: var(--border-strong);
+  --btn-shadow: var(--shadow-sm), inset 0 1px 0 var(--hairline);
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 16px;
+  border: 1px solid var(--btn-border);
+  border-radius: var(--radius);
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  font-size: 0.9375rem;
+  font-weight: 570;
+  letter-spacing: -0.005em;
+  cursor: pointer;
+  text-decoration: none;
+  box-shadow: var(--btn-shadow);
+  transition: transform 0.2s var(--ease), box-shadow 0.2s var(--ease), filter 0.2s var(--ease),
+    border-color 0.2s var(--ease);
+  white-space: nowrap;
+}
+
+.btn:hover:not(:disabled) {
+  filter: brightness(0.98);
+  text-decoration: none;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow), inset 0 1px 0 var(--hairline);
+}
+
+/* Pressed state returns the button to the surface. Without this the hover lift
+   reads as a hover effect rather than as a physical control. */
+.btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
+  filter: brightness(0.96);
+}
+
+@media (prefers-color-scheme: dark) {
+  .btn:hover:not(:disabled) {
+    filter: brightness(1.12);
+  }
+
+  .btn:active:not(:disabled) {
+    filter: brightness(1.04);
+  }
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn.primary {
+  --btn-bg: linear-gradient(180deg, var(--accent-lift), var(--accent) 65%, var(--accent-strong));
+  --btn-fg: #ffffff;
+  --btn-border: var(--accent-strong);
+  --btn-shadow: var(--shadow-accent), inset 0 1px 0 rgb(255 255 255 / 24%);
+}
+
+.btn.primary:hover:not(:disabled) {
+  box-shadow: 0 8px 22px -8px var(--accent-glow), var(--shadow-sm),
+    inset 0 1px 0 rgb(255 255 255 / 24%);
+}
+
+@media (prefers-color-scheme: dark) {
+  .btn.primary {
+    --btn-fg: #04211e;
+    --btn-border: var(--accent);
+  }
+}
+
+.btn.danger {
+  --btn-bg: transparent;
+  --btn-fg: var(--danger);
+  --btn-border: color-mix(in srgb, var(--danger) 45%, transparent);
+  --btn-shadow: none;
+}
+
+.btn.danger:hover:not(:disabled) {
+  --btn-border: var(--danger);
+  background: var(--danger-soft);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn.ghost {
+  --btn-bg: transparent;
+  --btn-border: transparent;
+  --btn-fg: var(--ink-soft);
+  --btn-shadow: none;
+  padding-inline: 9px;
+}
+
+.btn.ghost:hover:not(:disabled) {
+  background: var(--surface-sunken);
+  color: var(--ink);
+  border-color: var(--border);
+  box-shadow: none;
+  transform: none;
+}
+
+.btn.small {
+  min-height: 30px;
+  padding-inline: 11px;
+  font-size: 0.85rem;
+}
+
+.btn.block {
+  width: 100%;
+}
+
+.btn-group {
+  display: inline-flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Touch. Driven by the input device, not the width — a 1024px tablet needs this
+   and a 1024px laptop does not. 44px is the smallest reliable thumb target. */
+@media (pointer: coarse) {
+  .btn {
+    min-height: 44px;
+    padding-inline: 18px;
+  }
+
+  .btn.small {
+    min-height: 36px;
+  }
+
+  .btn.ghost {
+    padding-inline: 11px;
+  }
+
+  /* A finger has no hover, and the lift leaves the button looking stuck. */
+  .btn:hover:not(:disabled) {
+    transform: none;
+  }
+
+  .segmented button {
+    min-height: 36px;
+    padding: 8px 13px;
+  }
+
+  .nav a {
+    min-height: 44px;
+  }
+
+  .check input,
+  .choice input {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+/* Very narrow phones: a row of side-by-side buttons is unreadable well before it
+   overflows, so let each one own the width. */
+@media (max-width: 419px) {
+  .btn-group:not(.keep-inline) {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .btn-group:not(.keep-inline) > .btn {
+    width: 100%;
+  }
+}
+
+/* Segmented filter control, used by the report list and the queue. */
+.segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: inset 0 1px 2px rgb(12 22 32 / 4%);
+  max-width: 100%;
+}
+
+.segmented button {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-soft);
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background-color 0.2s var(--ease), color 0.2s var(--ease);
+}
+
+.segmented button:hover:not([aria-pressed='true']) {
+  color: var(--ink);
+}
+
+.segmented button[aria-pressed='true'] {
+  background: linear-gradient(180deg, var(--surface-raised), var(--surface));
+  border-color: var(--border);
+  color: var(--ink);
+  font-weight: 620;
+  box-shadow: var(--shadow-sm), inset 0 1px 0 var(--hairline);
+}
+
+/* -------------------------------------------------------------------- forms */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field > label,
+.field-label {
+  font-size: 0.875rem;
+  font-weight: 590;
+}
+
+.field .hint {
+  font-size: 0.8125rem;
+  color: var(--ink-faint);
+}
+
+.field .err {
+  font-size: 0.8125rem;
+  color: var(--danger);
+  font-weight: 530;
+}
+
+input[type='text'],
+input[type='email'],
+input[type='tel'],
+input[type='password'],
+input[type='date'],
+input[type='datetime-local'],
+input[type='file'],
+select,
+textarea {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--ink);
+  box-shadow: inset 0 1px 2px rgb(12 22 32 / 4%);
+  transition: border-color 0.18s var(--ease), box-shadow 0.18s var(--ease);
+}
+
+/* A ring rather than an outline on fields: it follows the border radius exactly
+   and reads as the field waking up rather than as a focus artefact. */
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+textarea {
+  min-height: 120px;
+  resize: vertical;
+  line-height: 1.6;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--ink-faint);
+}
+
+input[aria-invalid='true'],
+select[aria-invalid='true'],
+textarea[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+input[aria-invalid='true']:focus-visible,
+select[aria-invalid='true']:focus-visible,
+textarea[aria-invalid='true']:focus-visible {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 18%, transparent);
+}
+
+input:disabled,
+textarea:disabled,
+select:disabled {
+  background: var(--surface-sunken);
+  color: var(--ink-faint);
+  box-shadow: none;
+}
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 0.9375rem;
+}
+
+.check input {
+  margin-top: 3px;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  flex: none;
+}
+
+.counter {
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.counter.over {
+  color: var(--danger);
+}
+
+/* Radio cards, for choices that need explaining (decision outcomes, appeals). */
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.choice {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 0.2s var(--ease), background-color 0.2s var(--ease),
+    box-shadow 0.2s var(--ease);
+}
+
+.choice:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border-strong));
+}
+
+.choice:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 1px var(--accent), var(--shadow-sm);
+}
+
+.choice input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+  flex: none;
+}
+
+.choice .choice-title {
+  font-weight: 590;
+  font-size: 0.9375rem;
+}
+
+.choice .choice-note {
+  font-size: 0.8125rem;
+  color: var(--ink-soft);
+}
+
+/* ------------------------------------------------------------------- status */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 620;
+  letter-spacing: 0.01em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.badge.draft {
+  background: var(--surface-sunken);
+  color: var(--ink-soft);
+  border-color: var(--border-strong);
+}
+
+.badge.open {
+  background: var(--info-soft);
+  color: var(--info);
+  border-color: color-mix(in srgb, var(--info) 22%, transparent);
+}
+
+.badge.active {
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 22%, transparent);
+}
+
+.badge.done {
+  background: var(--success-soft);
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 22%, transparent);
+}
+
+.badge.closed {
+  background: var(--surface-sunken);
+  color: var(--ink-faint);
+  border-color: var(--border);
+}
+
+.badge.alert {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 22%, transparent);
+}
+
+.badge.grave {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 38%, transparent);
+}
+
+.callout {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  border-left-width: 3px;
+  font-size: 0.9375rem;
+}
+
+.callout .callout-title {
+  font-weight: 630;
+}
+
+.callout.info {
+  background: var(--info-soft);
+  border-color: var(--info);
+  color: var(--ink);
+}
+
+.callout.warn {
+  background: var(--warn-soft);
+  border-color: var(--warn);
+}
+
+.callout.danger {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+}
+
+.callout.success {
+  background: var(--success-soft);
+  border-color: var(--success);
+}
+
+.callout.neutral {
+  background: var(--surface-sunken);
+  border-color: var(--border-strong);
+  color: var(--ink-soft);
+}
+
+.callout ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+/* --------------------------------------------------------------------- data */
+
+.dl {
+  display: grid;
+  grid-template-columns: minmax(120px, auto) minmax(0, 1fr);
+  gap: 9px 18px;
+  margin: 0;
+  font-size: 0.9375rem;
+}
+
+.dl dt {
+  color: var(--ink-faint);
+  font-size: 0.8125rem;
+  padding-top: 2px;
+}
+
+.dl dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Below this, a 120px label column leaves too little for the value — a hashed
+   identifier or a filename would wrap to four lines beside its own label. */
+@media (max-width: 559px) {
+  .dl {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  .dl dt:not(:first-child) {
+    margin-top: 10px;
+  }
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.list > li {
+  border-top: 1px solid var(--border);
+}
+
+.list > li:first-child {
+  border-top: 0;
+}
+
+.list-row {
+  position: relative;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  padding: 15px var(--row-pad-x);
+  text-decoration: none;
+  color: inherit;
+  width: 100%;
+  transition: background-color 0.18s var(--ease);
+}
+
+a.list-row:hover {
+  background: var(--surface-sunken);
+  text-decoration: none;
+}
+
+/* An accent rail on hover, drawn from the row's own left edge. Cheaper to read
+   than a border change and it does not shift the text by a pixel. */
+a.list-row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 0 999px 999px 0;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 0.18s var(--ease);
+}
+
+a.list-row:hover::before {
+  opacity: 1;
+}
+
+.list-row .list-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  /* Subject labels and filenames arrive unbroken and long. */
+  overflow-wrap: anywhere;
+}
+
+.list-row .list-title {
+  font-weight: 590;
+}
+
+.list-row.unread {
+  background: var(--accent-soft);
+}
+
+/* On a phone the status badge belongs under the row it describes, not squeezed
+   against the right edge with three words of the title wrapped around it. */
+@media (max-width: 599px) {
+  .list-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 9px;
+  }
+
+  .list-row > .badge,
+  .list-row > .row {
+    align-self: flex-start;
+  }
+}
+
+/* A read notification renders its action cluster empty; stacked, that reads as a
+   stray gap under the row. */
+.list-row > .row:empty {
+  display: none;
+}
+
+/* A link that fills a row which also holds its own buttons, so the whole entry is
+   clickable without swallowing the controls beside it. */
+.list-link {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.list-link:hover .list-title {
+  text-decoration: underline;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: clamp(30px, 7vw, 48px) var(--gutter);
+  text-align: center;
+  color: var(--ink-soft);
+}
+
+.empty .empty-title {
+  font-weight: 610;
+  color: var(--ink);
+}
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.timeline > li {
+  position: relative;
+  border-left: 2px solid var(--border);
+  padding: 0 0 0 18px;
+}
+
+/* A node on the rail. The ring is the page background, so the dot appears to sit
+   on top of the line rather than beside it. */
+.timeline > li::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--border-strong);
+}
+
+.timeline > li:first-child::before {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+/* Spinner and skeleton */
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex: none;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+  padding: 48px;
+  color: var(--ink-faint);
+}
+
+/* -------------------------------------------------------------- app chrome */
+
+.shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  /* The content row takes the slack. Without this the grid has two auto rows and
+     `min-height` distributes the leftover viewport height between them, which
+     stretches the app bar to a third of the screen on any short page. */
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+@media (min-width: 860px) {
+  .shell {
+    grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+    /* The app bar is `display: none` here, so there is only ever one row. */
+    grid-template-rows: minmax(0, 1fr);
+  }
+}
+
+/*
+ * The sidebar is one element in two shapes.
+ *
+ * Below 860px it is an off-canvas drawer: the six nav items plus the account
+ * block are around 380px of vertical space, and spending that above the content
+ * on a 667px phone means the user scrolls past the navigation to reach the page
+ * every single time. Closed, it is `visibility: hidden` — which is what keeps it
+ * out of the tab order and the accessibility tree, so no `aria-hidden` bookkeeping
+ * is needed and no focus trap is required to stop Tab walking into it.
+ *
+ * At 860px and up it is a sticky column and the app bar above it disappears.
+ */
+.sidebar {
+  position: fixed;
+  inset-block: 0;
+  left: 0;
+  z-index: 50;
+  width: var(--drawer-width);
+  padding: 16px 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--nav-bg);
+  border-right: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  transform: translateX(-100%);
+  visibility: hidden;
+  /* Visibility is switched instantly and only *delayed* on the way out, so the
+     drawer stays on screen for the whole slide-away and then leaves the tab
+     order. Transitioning it over the same 0.32s instead — the obvious spelling —
+     leaves the element computing as `hidden` for the first frames of the opening
+     slide, and focus() on a hidden element is silently dropped, so the drawer
+     opens with focus left behind on the trigger. */
+  transition: transform 0.32s var(--ease), visibility 0s linear 0.32s;
+  /* A default scrollbar in a 300px drawer is a grey slab down the edge. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.sidebar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.sidebar::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.sidebar.open {
+  transform: none;
+  visibility: visible;
+  /* No delay in this direction: the drawer must be focusable on the frame the
+     class lands, not once the slide has finished. */
+  transition: transform 0.32s var(--ease), visibility 0s;
+}
+
+@media (min-width: 860px) {
+  .sidebar {
+    position: sticky;
+    top: 0;
+    inset-block: auto;
+    z-index: 1;
+    width: auto;
+    height: 100vh;
+    height: 100dvh;
+    padding: 18px 12px;
+    box-shadow: none;
+    transform: none;
+    visibility: visible;
+    transition: none;
+  }
+}
+
+/* The bar that replaces the sidebar on small screens. Sticky rather than fixed:
+   it keeps the drawer trigger and the unread count reachable without taking the
+   content out of the normal scroll flow.
+
+   Frosted, so content scrolling underneath stays faintly visible instead of
+   vanishing under an opaque slab — the one place in this sheet where a blur is
+   worth its cost, because this element is on screen for the whole session.
+
+   Only the unprefixed property is written. Declaring `-webkit-backdrop-filter`
+   alongside it makes the build's CSS minifier treat the pair as duplicates and
+   keep just one — and the one it keeps is the prefixed form, which Chrome does
+   not implement, so the blur silently disappears in production. The minifier
+   adds whatever prefixes its browser targets actually need. */
+.appbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--appbar-height);
+  padding: 8px var(--gutter);
+  background: color-mix(in srgb, var(--surface) 74%, transparent);
+  backdrop-filter: blur(16px) saturate(150%);
+  border-bottom: 1px solid var(--border);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .appbar {
+    background: var(--surface);
+  }
+}
+
+.appbar .spacer {
+  flex: 1;
+}
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  border: 0;
+  padding: 0;
+  background: rgb(6 10 15 / 52%);
+  backdrop-filter: blur(2px);
+  animation: scrim-in 0.22s var(--ease);
+  cursor: pointer;
+}
+
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Locked while the drawer is open, or the page scrolls behind it under the thumb. */
+body.nav-open {
+  overflow: hidden;
+}
+
+/* A square, borderless control for the drawer toggle and its close button. */
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background-color 0.18s var(--ease), color 0.18s var(--ease),
+    border-color 0.18s var(--ease);
+}
+
+.icon-btn:hover {
+  background: var(--surface-sunken);
+  border-color: var(--border);
+  color: var(--ink);
+}
+
+.icon-btn:active {
+  background: var(--border);
+}
+
+.icon-btn .pill {
+  position: absolute;
+  transform: translate(14px, -13px);
+  pointer-events: none;
+  /* Ringed in the bar's own colour so the count reads as a notification dot
+     pinned to the bell rather than a stray label floating beside it. */
+  outline: 2px solid var(--surface);
+}
+
+.appbar .icon-btn {
+  position: relative;
+}
+
+/* Shown only in the drawer; the desktop column has no need to be dismissed. */
+@media (min-width: 860px) {
+  .appbar,
+  .scrim,
+  .drawer-only {
+    display: none;
+  }
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 690;
+  font-size: 1.0625rem;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.brand:hover {
+  text-decoration: none;
+}
+
+.brand .mark {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  background: linear-gradient(145deg, var(--accent-lift), var(--accent) 55%, var(--accent-strong));
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 0.7rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  flex: none;
+  box-shadow: 0 2px 8px -2px var(--accent-glow), inset 0 1px 0 rgb(255 255 255 / 30%);
+}
+
+/* A diagonal sheen across the mark. The whole reason the logo reads as an object
+   rather than a coloured rectangle with letters in it. */
+.brand .mark::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(150deg, rgb(255 255 255 / 26%), transparent 55%);
+  pointer-events: none;
+}
+
+/* The brand row at the top of the rail, held apart from the nav below it. */
+.nav-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 4px 0;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav a {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 11px 9px 13px;
+  border-radius: 10px;
+  color: var(--ink-soft);
+  font-size: 0.9375rem;
+  font-weight: 545;
+  transition: background-color 0.2s var(--ease), color 0.2s var(--ease),
+    box-shadow 0.2s var(--ease);
+}
+
+/* The active rail. It grows out of nothing rather than fading in, so moving
+   between pages reads as one indicator travelling instead of two blinking. */
+.nav a::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  width: 3px;
+  height: 0;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--accent-lift), var(--accent));
+  transform: translateY(-50%);
+  transition: height 0.28s var(--ease);
+}
+
+.nav a:hover {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.nav a:hover::before {
+  height: 10px;
+  opacity: 0.5;
+}
+
+.nav a[aria-current='page'] {
+  background: linear-gradient(
+    90deg,
+    var(--accent-soft),
+    color-mix(in srgb, var(--accent-soft) 45%, transparent)
+  );
+  color: var(--accent-ink);
+  font-weight: 630;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.nav a[aria-current='page']::before {
+  height: 18px;
+  opacity: 1;
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+.nav-icon {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  color: var(--ink-faint);
+  transition: color 0.2s var(--ease), transform 0.2s var(--ease);
+}
+
+.nav a:hover .nav-icon {
+  color: var(--ink-soft);
+}
+
+.nav a[aria-current='page'] .nav-icon {
+  color: var(--accent);
+}
+
+.nav-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-section {
+  margin-top: 14px;
+}
+
+/* Section label with a hairline running to the edge of the rail. Groups the
+   moderation items without spending a whole divider row on them. */
+.nav-heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 11px 7px 13px;
+  font-size: 0.68rem;
+  font-weight: 680;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.nav-heading::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.pill {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--accent-lift), var(--accent));
+  color: #fff;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-align: center;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 1px 4px -1px var(--accent-glow), inset 0 1px 0 rgb(255 255 255 / 26%);
+}
+
+@media (prefers-color-scheme: dark) {
+  .pill {
+    color: #04211e;
+  }
+}
+
+/* The signed-in identity, at the foot of the rail. */
+.account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, var(--surface-raised), var(--surface));
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm), inset 0 1px 0 var(--hairline);
+  min-width: 0;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 50%;
+  background: linear-gradient(145deg, var(--accent-lift), var(--accent-strong));
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  box-shadow: 0 2px 6px -2px var(--accent-glow), inset 0 1px 0 rgb(255 255 255 / 26%);
+}
+
+.account-id {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.account-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-role {
+  font-size: 0.72rem;
+  font-weight: 620;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.main {
+  padding: clamp(18px, 4vw, 28px) 0 clamp(48px, 9vw, 72px);
+  min-width: 0;
+}
+
+/* Public (unauthenticated) chrome. Frosted and sticky, matching the app bar so
+   the two halves of the product feel like one product. */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 74%, transparent);
+  backdrop-filter: blur(16px) saturate(150%);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .topbar {
+    background: var(--surface);
+  }
+}
+
+.topbar .container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 62px;
+  flex-wrap: wrap;
+  padding-block: 10px;
+}
+
+@media (max-width: 419px) {
+  .topbar .container {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+.auth-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: clamp(20px, 5vw, 32px) var(--gutter);
+  gap: 20px;
+}
+
+/* A landscape phone is ~380px tall: centring would push the top of the card off
+   the screen, and a flex item overflowing a centred container cannot scroll to it. */
+@media (max-height: 660px) {
+  .auth-page {
+    justify-content: flex-start;
+  }
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 420px;
+  box-shadow: var(--shadow-lg), inset 0 1px 0 var(--hairline);
+}
+
+.footnote {
+  font-size: 0.8125rem;
+  color: var(--ink-faint);
+  text-align: center;
+  max-width: 46ch;
+}
+
+/* Landing hero */
+.hero {
+  padding: clamp(36px, 7vw, 76px) 0 clamp(24px, 5vw, 44px);
+}
+
+.hero .stack {
+  max-width: 720px;
+}
+
+.pledge {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.pledge li {
+  position: relative;
+  background: linear-gradient(180deg, var(--surface-raised), var(--surface));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px 18px;
+  box-shadow: var(--shadow-sm), inset 0 1px 0 var(--hairline);
+  overflow: hidden;
+  transition: transform 0.25s var(--ease), box-shadow 0.25s var(--ease);
+}
+
+/* The accent edge as a pseudo-element rather than a border, so it can be a
+   gradient and can sit inside the card's own rounded corners. */
+.pledge li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--accent-lift), var(--accent) 60%, transparent);
+}
+
+.pledge li:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow), inset 0 1px 0 var(--hairline);
+}
+
+.pledge .pledge-title {
+  font-weight: 630;
+  margin-bottom: 4px;
+}
+
+.pledge .pledge-body {
+  font-size: 0.875rem;
+  color: var(--ink-soft);
+}
+
+/* -------------------------------------------------------------- responsive */
+
+/* The page title and its primary action. Side by side they fight for a phone's
+   width — "File a report" ends up two characters wide — so the action drops
+   below the heading and takes the full width. */
+@media (max-width: 599px) {
+  .row.between.top {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .row.between.top > .btn,
+  .row.between.top > .btn-group > .btn {
+    width: 100%;
+  }
+}
+
+/* Big monitors: spend the extra width on content and navigation, not margin. */
+@media (min-width: 1440px) {
+  :root {
+    --sidebar-width: 272px;
+  }
+
+  .container.wide {
+    max-width: 1280px;
+  }
+}

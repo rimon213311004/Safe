@@ -1,0 +1,28 @@
+{
+  "name": "safecheck",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Privacy-first personal safety, verification and incident reporting platform",
+  "license": "UNLICENSED",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "scripts": {
+    "build": "npm run build -w @safecheck/shared && npm run build -w @safecheck/api && npm run build -w @safecheck/web",
+    "build:shared": "npm run build -w @safecheck/shared",
+    "dev": "concurrently -n api,web -c cyan,magenta \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm run dev -w @safecheck/api",
+    "dev:web": "npm run dev -w @safecheck/web",
+    "seed": "npm run seed -w @safecheck/api",
+    "test": "npm run test -w @safecheck/api",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^7.0.2"
+  }
+}
