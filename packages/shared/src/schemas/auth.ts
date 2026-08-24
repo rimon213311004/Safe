@@ -54,6 +54,24 @@ export const changePasswordInput = z
   });
 export type ChangePasswordInput = z.infer<typeof changePasswordInput>;
 
+/**
+ * Step one of a forgotten password: ask for a reset code by email.
+ *
+ * Deliberately takes nothing but the address. Anything else — a security
+ * question, the account's name — would let a stranger probe the account before
+ * proving they can read its mail.
+ */
+export const forgotPasswordInput = z.object({ email });
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordInput>;
+
+/** Step two: the code from that email, plus the replacement password. */
+export const resetPasswordInput = z.object({
+  email,
+  code: otpCode,
+  newPassword: password,
+});
+export type ResetPasswordInput = z.infer<typeof resetPasswordInput>;
+
 /* ------------------------------------------------------------ public shapes */
 
 /** The authenticated user as returned to the client. Never includes secrets. */

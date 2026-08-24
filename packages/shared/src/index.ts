@@ -20,8 +20,10 @@ export type {
   AuthChallenge,
   AuthTokens,
   AuthUser,
+  ForgotPasswordInput,
   LoginInput,
   RegisterInput,
+  ResetPasswordInput,
   VerifyEmailInput,
 } from './schemas/auth.js';
 export type {

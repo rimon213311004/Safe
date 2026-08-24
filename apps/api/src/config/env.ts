@@ -68,6 +68,18 @@ const rawEnv = z
     TWILIO_AUTH_TOKEN: z.string().optional().default(''),
     TWILIO_FROM: z.string().optional().default(''),
 
+    /**
+     * Whether a new account must confirm its email before it can sign in.
+     *
+     * Left unset — or left blank, as .env.example ships it — it follows the mail
+     * driver; see `requireEmailVerification` below. Set `true` or `false` to
+     * decide explicitly.
+     */
+    REQUIRE_EMAIL_VERIFICATION: z
+      .enum(['true', 'false', ''])
+      .optional()
+      .transform((value) => (value ? value === 'true' : undefined)),
+
     APPEAL_WINDOW_DAYS: z.coerce.number().int().positive().default(14),
     EVIDENCE_RETENTION_DAYS: z.coerce.number().int().positive().default(365),
 
@@ -144,6 +156,24 @@ export const env = load();
 
 export const isProd = env.NODE_ENV === 'production';
 export const isTest = env.NODE_ENV === 'test';
+
+/**
+ * Is email confirmation a precondition for signing in?
+ *
+ * The default follows delivery rather than policy, because a verification step
+ * the user cannot complete is worse than no verification at all. With
+ * MAIL_DRIVER=console the code only ever reaches this process's stdout, so
+ * requiring it would lock out everyone who is not reading the server log —
+ * accounts are created already confirmed instead. Configure SMTP (see
+ * .env.example) and the requirement returns on its own.
+ *
+ * Tests are the exception: there the transport is an in-memory capture the suite
+ * reads back, so delivery genuinely works and the flow stays under test.
+ *
+ * REQUIRE_EMAIL_VERIFICATION overrides all of that in either direction.
+ */
+export const requireEmailVerification =
+  env.REQUIRE_EMAIL_VERIFICATION ?? (isTest || env.MAIL_DRIVER !== 'console');
 export const isDev = env.NODE_ENV === 'development';
 
 /** True when a real Redis is configured; otherwise queues run inline. */

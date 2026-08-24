@@ -64,7 +64,19 @@ export default function LoginPage() {
           />
         </Field>
 
-        <Field label="Password" htmlFor="password" error={fieldError('password')}>
+        <Field
+          label="Password"
+          htmlFor="password"
+          error={fieldError('password')}
+          aside={
+            <Link
+              href={email ? `/forgot-password?email=${encodeURIComponent(email)}` : '/forgot-password'}
+              className="faint"
+            >
+              Forgot your password?
+            </Link>
+          }
+        >
           <input
             id="password"
             name="password"

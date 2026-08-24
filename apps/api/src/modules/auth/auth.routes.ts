@@ -60,7 +60,7 @@ authRouter.post(
   validate({ body: authSchemas.registerInput }),
   asyncHandler(async (req: Request, res: Response) => {
     const input = body<authSchemas.RegisterInput>(req);
-    await authService.registerUser({
+    const result = await authService.registerUser({
       email: input.email,
       password: input.password,
       name: input.name,
@@ -68,9 +68,12 @@ authRouter.post(
     });
     // Always the same response whether or not the address was already taken.
     res.status(202).json({
-      status: 'verification_sent',
-      message: 'Check your email for a 6-digit confirmation code.',
+      status: result.verificationRequired ? 'verification_sent' : 'active',
+      message: result.verificationRequired
+        ? 'Check your email for a 6-digit confirmation code.'
+        : 'Your account is ready. You can sign in now.',
       email: input.email,
+      verificationRequired: result.verificationRequired,
     });
   }),
 );
@@ -105,6 +108,54 @@ authRouter.post(
       await authService.issueEmailOtp({ email: input.email, purpose: input.purpose });
     }
     res.status(202).json({ status: 'verification_sent' });
+  }),
+);
+
+/* --------------------------------------------------------- password reset */
+
+/**
+ * Both of these answer the same way for an address that has no account, so
+ * neither can be used to find out who is registered. They sit behind `otpLimiter`
+ * for the same reason `/verify-email` does: a six-digit code is only strong while
+ * guesses are expensive.
+ */
+authRouter.post(
+  '/forgot-password',
+  otpLimiter,
+  validate({ body: authSchemas.forgotPasswordInput }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const input = body<authSchemas.ForgotPasswordInput>(req);
+    await authService.requestPasswordReset({
+      email: input.email,
+      context: auditContextFromRequest(req),
+    });
+    res.status(202).json({
+      status: 'reset_sent',
+      message: 'If that address has an account, a reset code is on its way.',
+      email: input.email,
+    });
+  }),
+);
+
+authRouter.post(
+  '/reset-password',
+  otpLimiter,
+  validate({ body: authSchemas.resetPasswordInput }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const input = body<authSchemas.ResetPasswordInput>(req);
+    await authService.resetPassword({
+      email: input.email,
+      code: input.code,
+      newPassword: input.newPassword,
+      context: auditContextFromRequest(req),
+    });
+    // No tokens here on purpose. The reset revoked every session for this
+    // account, and handing one straight back would undo that for the very
+    // request most likely to be the attacker's.
+    res.status(200).json({
+      status: 'password_reset',
+      message: 'Your password has been changed. Sign in with it now.',
+    });
   }),
 );
 

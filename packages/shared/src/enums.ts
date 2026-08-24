@@ -197,6 +197,8 @@ export const AUDIT_ACTIONS = [
   'auth.logout',
   'auth.token_reuse_detected',
   'auth.password_changed',
+  'auth.password_reset_requested',
+  'auth.password_reset',
   'report.created',
   'report.submitted',
   'report.status_changed',

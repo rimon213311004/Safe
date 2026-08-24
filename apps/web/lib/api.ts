@@ -3,10 +3,12 @@ import type {
   AuthUser,
   CreateReportInput,
   FileAppealInput,
+  ForgotPasswordInput,
   ListNotificationsQuery,
   ListQueueQuery,
   LoginInput,
   RegisterInput,
+  ResetPasswordInput,
   ResolveAppealInput,
   SearchInput,
   SearchResult,
@@ -278,10 +280,13 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
 /**
  * Registration never reveals whether the address was already taken — the API
- * answers 202 either way — so there is nothing to return but the address the
- * verification code went to.
+ * answers 202 either way — so there is nothing to return but the address and
+ * whether a code is on its way. `verificationRequired` is false when the server
+ * has no mail transport configured; the account is then already usable.
  */
-async function register(input: RegisterInput): Promise<{ email: string }> {
+async function register(
+  input: RegisterInput,
+): Promise<{ email: string; verificationRequired: boolean }> {
   return request('/auth/register', { method: 'POST', json: input, auth: false });
 }
 
@@ -322,6 +327,27 @@ async function changePassword(input: { currentPassword: string; newPassword: str
   // over by design. Say so by ending it here rather than on the next 401.
   accessToken = null;
   sessionListener?.(null);
+}
+
+/**
+ * Ask for a reset code by email. Resolves the same way for an address with no
+ * account — the API will not say which is which, so neither can this. The screen
+ * must therefore move to the code step unconditionally and never claim the mail
+ * was sent.
+ */
+async function forgotPassword(input: ForgotPasswordInput): Promise<void> {
+  await request('/auth/forgot-password', { method: 'POST', json: input, auth: false });
+}
+
+/**
+ * Exchange the code for a new password.
+ *
+ * Returns no session: the reset revoked every one this account had, and the API
+ * deliberately declines to hand a fresh one to whoever made the request. The
+ * caller sends the user to sign in.
+ */
+async function resetPassword(input: ResetPasswordInput): Promise<void> {
+  await request('/auth/reset-password', { method: 'POST', json: input, auth: false });
 }
 
 /* -------------------------------------------------------------------- search */
@@ -549,6 +575,8 @@ export const api = {
   resendOtp,
   logout,
   changePassword,
+  forgotPassword,
+  resetPassword,
   search,
   listReports,
   createReport,

@@ -23,7 +23,7 @@ window has closed with no appeal pending.
 5. [The four guarantees, and where each is enforced](#the-four-guarantees-and-where-each-is-enforced)
 6. [API surface](#api-surface)
 7. [Web routes](#web-routes)
-8. [Email verification (the OTP code)](#email-verification-the-otp-code)
+8. [Email codes — verification and password reset](#email-codes--verification-and-password-reset)
 9. [Environment variables](#environment-variables)
 10. [Scripts](#scripts)
 11. [Tests](#tests)
@@ -175,7 +175,9 @@ Safe/
 │       │   ├── layout.tsx        the narrow centred card frame
 │       │   ├── login/page.tsx
 │       │   ├── register/page.tsx
-│       │   └── verify-email/page.tsx     where the OTP code is entered
+│       │   ├── verify-email/page.tsx       where the OTP code is entered
+│       │   ├── forgot-password/page.tsx    step 1 — ask for a reset code
+│       │   └── reset-password/page.tsx     step 2 — code + new password
 │       │
 │       ├── app/(app)/            authenticated screens
 │       │   ├── layout.tsx        ⭐ sidebar / off-canvas drawer / app bar
@@ -288,6 +290,8 @@ All routes are prefixed `/api`. `auth` marks routes requiring an access token;
 | POST | `/register` | create an account, send the verification code |
 | POST | `/verify-email` | exchange the code for a verified account |
 | POST | `/resend-otp` | send a fresh code (rate limited) |
+| POST | `/forgot-password` | mail a reset code — 202 even for an unknown address |
+| POST | `/reset-password` | code + new password; revokes every session, returns no tokens |
 | POST | `/login` | issue access + refresh tokens |
 | POST | `/refresh` | rotate the refresh family, mint a new access token |
 | POST | `/logout` | revoke the current session |
@@ -340,6 +344,7 @@ All routes are prefixed `/api`. `auth` marks routes requiring an access token;
 | `/` | landing page — leads with what the product will not do |
 | `/login`, `/register` | authentication |
 | `/verify-email` | enter the six-digit code |
+| `/forgot-password`, `/reset-password` | password reset by emailed code |
 | `/search` | check an identifier |
 | `/reports`, `/reports/new`, `/reports/[id]` | your reports |
 | `/notifications` | notifications |
@@ -348,10 +353,25 @@ All routes are prefixed `/api`. `auth` marks routes requiring an access token;
 
 ---
 
-## Email verification (the OTP code)
+## Email codes — verification and password reset
 
-Registration generates a six-digit code, stores **only its hash** with a TTL, and
-hands it to the mail transport. Which transport runs is decided by one variable.
+Both flows use the same machinery: a six-digit code, **only its hash** stored, a
+ten-minute TTL, a per-code attempt counter, and the newest code invalidating any
+earlier one for that purpose. Which transport carries it is decided by one
+variable — and that variable also decides whether confirmation is required at all.
+
+| `MAIL_DRIVER` | Code delivery | New accounts |
+| --- | --- | --- |
+| `console` | printed to the API terminal | created **already confirmed** — sign in immediately |
+| `smtp` | emailed for real | must enter the code before first sign-in |
+
+The coupling is deliberate. A confirmation step nobody can complete is worse than
+no confirmation at all, so the requirement switches itself off when there is no
+way to deliver a code. `REQUIRE_EMAIL_VERIFICATION=true|false` overrides it in
+either direction; the decision lives in `apps/api/src/config/env.ts` as
+`requireEmailVerification`, and the register response carries
+`verificationRequired` so the web app knows whether to show the code form or go
+straight to the app.
 
 ### `MAIL_DRIVER=console` (the default)
 
@@ -364,13 +384,13 @@ Mail (console driver)
   Your verification code is 481920. It expires in 10 minutes.
 ```
 
-This is why an inbox looks empty after signing up on a fresh checkout. Copy the
-code from that terminal and paste it into `/verify-email`.
+Because delivery is impossible here, sign-up skips confirmation entirely and the
+account works right away.
 
 ### `MAIL_DRIVER=smtp` — real delivery, free
 
-Every provider worth using speaks SMTP, so one code path reaches all of them. Two
-free options that need no credit card and no domain:
+No Stripe, no paid plan, no domain. Every provider worth using speaks SMTP, so one
+code path reaches all of them. Two genuinely free options:
 
 **Gmail** — about 500 messages a day. Turn on 2-Step Verification, then create a
 16-character App Password at <https://myaccount.google.com/apppasswords>. Your
@@ -385,8 +405,8 @@ SMTP_PASS=abcdefghijklmnop
 MAIL_FROM="SafeCheck <you@gmail.com>"
 ```
 
-`MAIL_FROM` must be the same address as `SMTP_USER`; Gmail rewrites or rejects
-anything else.
+Paste the App Password with its spaces removed. `MAIL_FROM` must be the same
+address as `SMTP_USER`; Gmail rewrites or rejects anything else.
 
 **Brevo** — 300 messages a day, free permanently. Sign up, open *SMTP & API →
 SMTP*.
@@ -409,12 +429,43 @@ npm run mail:check -w @safecheck/api -- you@example.com
 That sends one real message through whatever driver is configured and prints the
 relay's reply — or the failure, with its underlying cause. Use it whenever a code
 does not arrive: because codes are stored only as hashes, a broken transport is
-otherwise invisible.
+otherwise invisible. First sends from a new sender often land in spam.
 
 `SMTP_URL=smtps://user:pass@host:465` is also accepted and wins over the discrete
 variables if both are set. Prefer the discrete ones — a URL has to
 percent-encode its password, and a pasted password containing `@` or `/` produces
 an authentication failure that looks nothing like an encoding bug.
+
+### Forgotten passwords
+
+Two steps, both by email, no admin involvement:
+
+1. `/forgot-password` → `POST /api/auth/forgot-password` mails a `password_reset`
+   code.
+2. `/reset-password` → `POST /api/auth/reset-password` takes the code and the new
+   password.
+
+Three properties are load-bearing, and each is a deliberate choice rather than an
+oversight:
+
+- **Neither endpoint reveals whether an address is registered.** Both answer the
+  same way for an address that has no account, and the web screens move forward
+  identically — so the form never says "we have emailed you", because it doesn't
+  know. Anything else would turn a reset form into a membership oracle, which on a
+  platform about personal safety is exactly the thing not to leak.
+- **A successful reset revokes every session for that account** and returns *no*
+  tokens. Whoever asked has to sign in with the new password like anybody else.
+  Handing back a session would undo the revocation for the one request least likely
+  to be the owner's.
+- **A valid code also marks the address confirmed**, since the code could only have
+  come out of that mailbox.
+
+There is no separate resend endpoint for reset codes — `/resend-otp` only knows
+about confirmation and sign-in — so "Send a new code" on `/reset-password` simply
+calls `/forgot-password` again, which invalidates the previous code.
+
+With `MAIL_DRIVER=console` the reset code prints to the API terminal like any
+other, which is how to exercise the flow locally without a mailbox.
 
 ### SMS
 
@@ -443,6 +494,7 @@ with a readable message rather than starting half-configured.
 | `STORAGE_LOCAL_DIR` | `./var/evidence`, git-ignored |
 | `CLOUDINARY_*` | evidence goes to private raw assets; avatars are public |
 | `MAIL_DRIVER`, `MAIL_FROM`, `SMTP_*` | see above |
+| `REQUIRE_EMAIL_VERIFICATION` | leave blank to follow `MAIL_DRIVER`; `true`/`false` to force it |
 | `SMS_DRIVER`, `TWILIO_*` | `console` unless you have Twilio |
 | `APPEAL_WINDOW_DAYS` | 14 — nothing is published while it is open |
 | `EVIDENCE_RETENTION_DAYS` | 365 |

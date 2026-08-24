@@ -1,6 +1,6 @@
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import type { AuthUser } from '@safecheck/shared';
-import { env } from '../../config/env.js';
+import { env, requireEmailVerification } from '../../config/env.js';
 import { generateOtp, hashToken, safeEqual } from '../../lib/crypto.js';
 import {
   conflict,
@@ -69,15 +69,17 @@ export async function registerUser(params: {
   password: string;
   name: string;
   context: AuditContext;
-}): Promise<{ email: string }> {
+}): Promise<{ email: string; verificationRequired: boolean }> {
   const existing = await User.findOne({ email: params.email }).select('_id emailVerified').lean();
   if (existing) {
     // An unverified account can be re-registered (the person may have lost the
     // code). A verified one cannot — but we must not confirm that the address is
     // taken, so we send the same response and simply don't create anything.
     if (existing.emailVerified) {
-      await issueEmailOtp({ email: params.email, purpose: 'verify_email', silent: true });
-      return { email: params.email };
+      if (requireEmailVerification) {
+        await issueEmailOtp({ email: params.email, purpose: 'verify_email', silent: true });
+      }
+      return { email: params.email, verificationRequired: requireEmailVerification };
     }
     await User.deleteOne({ _id: existing._id });
   }
@@ -87,17 +89,22 @@ export async function registerUser(params: {
     email: params.email,
     name: params.name,
     passwordHash,
-    emailVerified: false,
+    // With no way to deliver a code there is nothing for the account to wait on,
+    // so it starts confirmed rather than permanently stuck. See
+    // config/env.ts:requireEmailVerification.
+    emailVerified: !requireEmailVerification,
   });
 
-  await issueEmailOtp({ email: params.email, purpose: 'verify_email' });
+  if (requireEmailVerification) {
+    await issueEmailOtp({ email: params.email, purpose: 'verify_email' });
+  }
   await recordAudit('account.registered', {
     context: params.context,
     targetType: 'User',
     targetId: String(user._id),
   });
 
-  return { email: params.email };
+  return { email: params.email, verificationRequired: requireEmailVerification };
 }
 
 /* --------------------------------------------------------------------- otp */
@@ -123,14 +130,22 @@ export async function issueEmailOtp(params: {
 
   if (params.silent) return;
 
-  const subjectLine =
-    params.purpose === 'verify_email' ? 'Confirm your SafeCheck email' : 'Your SafeCheck sign-in code';
+  const subjectLine = {
+    verify_email: 'Confirm your SafeCheck email',
+    login: 'Your SafeCheck sign-in code',
+    password_reset: 'Reset your SafeCheck password',
+  }[params.purpose];
+
+  const preamble =
+    params.purpose === 'password_reset'
+      ? 'Someone asked to reset the password on this SafeCheck account. Your code is:'
+      : 'Your SafeCheck verification code is:';
 
   await mailer.send({
     to: params.email,
     subject: subjectLine,
     body:
-      `Your SafeCheck verification code is:\n\n    ${code}\n\n` +
+      `${preamble}\n\n    ${code}\n\n` +
       `It expires in ${OTP_TTL_MS / 60_000} minutes. If you didn't request it, ignore this message.`,
   });
 }
@@ -242,7 +257,7 @@ export async function login(params: {
     throw invalidCredentials();
   }
 
-  if (!user.emailVerified) {
+  if (requireEmailVerification && !user.emailVerified) {
     await issueEmailOtp({ email: user.email, purpose: 'verify_email' });
     throw preconditionFailed('Confirm your email first — we have sent you a new code.');
   }
@@ -313,6 +328,72 @@ export async function changePassword(params: {
     context: params.context,
     targetType: 'User',
     targetId: params.userId,
+  });
+}
+
+/* ----------------------------------------------------------- password reset */
+
+/**
+ * Step one: mail a reset code, if there is an account to mail it to.
+ *
+ * Returns nothing either way and never signals whether the address is registered.
+ * A "no such account" response here would turn this endpoint into a membership
+ * oracle — worth more to someone building a target list than the reset itself.
+ * The work done differs between the two branches, so the cost of a lookup is the
+ * only signal left, and it is not one an attacker can read reliably.
+ */
+export async function requestPasswordReset(params: {
+  email: string;
+  context: AuditContext;
+}): Promise<void> {
+  const user = await User.findOne({ email: params.email }).select('_id').lean();
+  if (!user) return;
+
+  await issueEmailOtp({ email: params.email, purpose: 'password_reset' });
+  await recordAudit('auth.password_reset_requested', {
+    context: params.context,
+    targetType: 'User',
+    targetId: String(user._id),
+  });
+}
+
+/**
+ * Step two: swap the password for a valid code.
+ *
+ * No current password is asked for — the code from the account's own inbox is the
+ * proof, which is the whole point of the flow. Every session is revoked
+ * afterwards for the same reason a deliberate change revokes them: whoever was
+ * signed in before may be exactly who this reset is defending against.
+ *
+ * A code that verifies also confirms the address, since it could only have been
+ * read out of that mailbox. An account that reset its password through email but
+ * still counted as unconfirmed would be an odd state to leave behind.
+ */
+export async function resetPassword(params: {
+  email: string;
+  code: string;
+  newPassword: string;
+  context: AuditContext;
+}): Promise<void> {
+  await consumeOtp({ email: params.email, code: params.code, purpose: 'password_reset' });
+
+  const user = await User.findOne({ email: params.email }).select('+passwordHash');
+  // The code was valid, so an account existed when it was issued. If it is gone
+  // now, say the same thing an expired code says rather than confirming deletion.
+  if (!user) throw preconditionFailed('That code is no longer valid. Request a new one.');
+
+  user.passwordHash = await argonHash(params.newPassword, ARGON_OPTIONS);
+  user.emailVerified = true;
+  user.failedLoginCount = 0;
+  user.lockedUntil = null;
+  await user.save();
+
+  await revokeAllSessions(String(user._id), 'password_changed');
+
+  await recordAudit('auth.password_reset', {
+    context: params.context,
+    targetType: 'User',
+    targetId: String(user._id),
   });
 }
 
