@@ -52,7 +52,14 @@ const rawEnv = z
     CLOUDINARY_EVIDENCE_FOLDER: z.string().default('safecheck/evidence'),
     CLOUDINARY_AVATAR_FOLDER: z.string().default('safecheck/avatars'),
 
-    MAIL_DRIVER: z.enum(['console', 'smtp']).default('console'),
+    /**
+     * How outbound email leaves the process.
+     *
+     * `smtp` is the portable choice and reaches every provider. `brevo` exists
+     * because portability assumes the host lets you open an SMTP socket at all,
+     * and free hosting tiers generally do not — see services/messaging.service.ts.
+     */
+    MAIL_DRIVER: z.enum(['console', 'smtp', 'brevo']).default('console'),
     MAIL_FROM: z.string().default('SafeCheck <no-reply@safecheck.local>'),
     /**
      * Either SMTP_URL on its own, or the four discrete variables. See
@@ -63,6 +70,8 @@ const rawEnv = z
     SMTP_PORT: z.coerce.number().int().positive().default(587),
     SMTP_USER: z.string().optional().default(''),
     SMTP_PASS: z.string().optional().default(''),
+    /** A v3 API key — `xkeysib-…`. The `xsmtpsib-…` SMTP key will not work. */
+    BREVO_API_KEY: z.string().optional().default(''),
     SMS_DRIVER: z.enum(['console', 'twilio']).default('console'),
     TWILIO_ACCOUNT_SID: z.string().optional().default(''),
     TWILIO_AUTH_TOKEN: z.string().optional().default(''),
@@ -124,6 +133,13 @@ const rawEnv = z
         message:
           'MAIL_DRIVER=smtp needs either SMTP_URL, or SMTP_HOST with SMTP_USER/SMTP_PASS',
         path: ['SMTP_URL'],
+      });
+    }
+    if (v.MAIL_DRIVER === 'brevo' && !v.BREVO_API_KEY) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'MAIL_DRIVER=brevo needs BREVO_API_KEY (a v3 key, xkeysib-…)',
+        path: ['BREVO_API_KEY'],
       });
     }
     // Guard against shipping the placeholder peppers from .env.example.

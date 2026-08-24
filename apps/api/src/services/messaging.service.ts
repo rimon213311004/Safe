@@ -14,6 +14,10 @@ import { logger } from '../lib/logger.js';
  * path, because they all speak SMTP — Gmail, Brevo, Resend, SES, Mailtrap. See
  * .env.example for the credentials each one wants; the code below does not care
  * which you picked.
+ *
+ * MAIL_DRIVER=brevo exists for one reason: SMTP assumes you are allowed to open
+ * a socket to a mail port, and on free hosting tiers you are not. See
+ * BrevoApiMailTransport.
  */
 
 export interface OutboundMessage {
@@ -122,6 +126,83 @@ class SmtpMailTransport implements MailTransport {
 }
 
 /**
+ * `SafeCheck <no-reply@example.com>` → `{ name, email }`.
+ *
+ * SMTP takes that header verbatim; a JSON API wants the two parts separately.
+ * A bare address with no display name is valid and stays nameless.
+ */
+function parseMailFrom(from: string): { name?: string; email: string } {
+  const match = /^\s*(.*?)\s*<([^>]+)>\s*$/.exec(from);
+  if (!match) return { email: from.trim() };
+  const name = match[1]!.replace(/^"|"$/g, '').trim();
+  return name ? { name, email: match[2]!.trim() } : { email: match[2]!.trim() };
+}
+
+/**
+ * Send over HTTPS instead of SMTP.
+ *
+ * Every free hosting tier worth deploying to — Render's included — blocks
+ * outbound connections to the mail submission ports. Not just 25, which would be
+ * ordinary anti-spam hygiene, but 465, 587 and 2525 as well: all three time out
+ * from a free Render instance while a connection to MongoDB Atlas on 27017 from
+ * the same container succeeds. The filter is on the ports, not on egress, so no
+ * amount of choosing a different relay or a different port helps. The way out is
+ * to stop speaking SMTP and post the message to a provider's REST API over 443,
+ * which is a port nobody blocks.
+ *
+ * Brevo is the provider here only because its free tier sends 300 messages a day
+ * without a card. Nothing about the interface is Brevo-shaped; another provider
+ * is another class of this size.
+ *
+ * BREVO_API_KEY must be a v3 key (`xkeysib-…`) from Brevo's SMTP & API →
+ * API keys page. The `xsmtpsib-…` value on the SMTP tab is an SMTP password and
+ * this endpoint rejects it with 401 — an easy hour to lose, since both are
+ * labelled "key" in the dashboard.
+ */
+class BrevoApiMailTransport implements MailTransport {
+  static readonly #ENDPOINT = 'https://api.brevo.com/v3/smtp/email';
+
+  async send(message: OutboundMessage): Promise<void> {
+    let response: Response;
+    try {
+      response = await fetch(BrevoApiMailTransport.#ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'api-key': env.BREVO_API_KEY,
+          'content-type': 'application/json',
+          accept: 'application/json',
+        },
+        body: JSON.stringify({
+          sender: parseMailFrom(env.MAIL_FROM),
+          to: [{ email: message.to }],
+          subject: message.subject,
+          textContent: message.body,
+        }),
+        // Same reasoning as SMTP_TIMEOUTS: a caller is waiting on this, and
+        // fetch has no timeout of its own.
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (cause) {
+      logger.error({ err: cause }, 'Brevo API request failed');
+      throw new Error('Could not send the verification email. Try again shortly.', { cause });
+    }
+
+    if (!response.ok) {
+      // Brevo answers errors as `{code, message}`. Worth logging in full: it
+      // names the actual problem — an unrecognised key, an unverified sender,
+      // the daily quota — where the status alone would not.
+      const detail = await response.text().catch(() => '');
+      logger.error({ status: response.status, detail }, 'Brevo rejected the message');
+      throw new Error('Could not send the verification email. Try again shortly.');
+    }
+
+    // No recipient in the log line, for the same reason as the SMTP transport.
+    const receipt = (await response.json().catch(() => ({}))) as { messageId?: string };
+    logger.info({ messageId: receipt.messageId }, 'Mail accepted by Brevo');
+  }
+}
+
+/**
  * Test transport: keeps sent messages in memory so the integration suite can
  * assert on them and extract OTP codes.
  *
@@ -143,7 +224,9 @@ export const mailer: MailTransport = isTest
   ? capturedMail
   : env.MAIL_DRIVER === 'console'
     ? new ConsoleMailTransport()
-    : new SmtpMailTransport();
+    : env.MAIL_DRIVER === 'brevo'
+      ? new BrevoApiMailTransport()
+      : new SmtpMailTransport();
 
 /* ---------------------------------------------------------------------- sms */
 
