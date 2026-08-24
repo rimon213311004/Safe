@@ -57,6 +57,7 @@ npm run build:shared && npm run dev
 
 - Web — <http://localhost:3000>
 - API — <http://localhost:4000>
+- Live -https://safecheck-web-chi.vercel.app/
 
 Optionally load demo data:
 
